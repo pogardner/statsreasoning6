@@ -1,0 +1,391 @@
+---
+title: "Stats Reasoning 6"
+authors: Paige and Peter
+format: pdf
+editor: visual
+---
+
+```{r}
+library(tidyverse) # For data wrangling
+library(brms) # For stats
+library(ggeffects) # for plotting model predictions
+# Note: I needed to also install the `insight` and `see` packages to get `modelbased` to install properly; try that if you get similar error messages 
+# install.packages('modelbased') # if you need to install this package
+library(modelbased) # for plotting model predictions. supports the link scale (ggeffects does not)
+# install.packages('faraway') # if you need to install this package
+library(faraway) # For data on galapagos species richess
+```
+
+## Q1.1
+
+### Q1.1a
+
+1.  Numerical (0 to infinity, positive, whole numbers)
+2.  Y/N, 0/1
+3.  0-1 or 0-100 , percent
+4.  Numerical
+5.  Numerical (positive)
+
+#### Q1.1b Choose a distribution that fits each of the response variables
+
+1.  Poisson
+
+2.   Bernoulli
+
+3.   Beta
+
+4.  Gamma
+
+5.  Gamma
+
+#### Q1.2 Choose a distribution that fits your final project response variable
+
+Now, 1. Write the response variable that you are using for your final project.
+
+**Beta diversity**
+
+2.  What values can your response variable take on? (e.g. real numbers, negative real numbers, positive real numbers, zeroes, integers, fractions, 0's/1's, etc.)
+
+**Continuous, real numbers**
+
+3.  What distribution (or distributions) fits your response variable?
+
+**Gaussian / gamma**
+
+## 1.2
+
+```{r}
+# Read in the pre-stored data
+data("gala")
+# Check out the first 6 rows
+head(gala)
+# Look at the help page too!
+```
+
+### Q1.3
+
+```{r}
+ggplot(gala, aes(x= Endemics))+
+  geom_histogram(color="black")
+```
+
+#### Q1.4 Plot Endemics \~ Elevation
+
+Make a plot to visualize the model we are about to run: Endemics as a function of Elevation.
+
+```{r}
+ggplot(gala, aes(x= Elevation, y=Endemics))+
+  geom_point()
+```
+
+```{r}
+# Endemics ~ Elevation
+m.elev <- 
+  brm(data = gala, # Give the model the penguins data
+      # Choose a poisson distribution - THIS IS THE NEW PART!
+      family = poisson(link = "log"),
+      # Specify the model here. 
+      Endemics ~ 1 + Elevation,
+      # Here's where you specify parameters for executing the Markov chains
+      # We're using similar to the defaults, except we set cores to 4 so the analysis runs faster than the default of 1
+      iter = 2000, warmup = 1000, chains = 4, cores = 4,
+      # Save the fitted model object as output - helpful for reloading in the output later
+      file = "output/m.elev")
+```
+
+```{r}
+plot(m.elev)
+pairs(m.elev)
+summary(m.elev)
+```
+
+### Q 1.5
+
+Answer: The Rhat values are \~2.3 and very different from 1. The posterior plots are not unimodal and the posterior chains are not overlapping.
+
+Clustering at either extreme of the elevation. Not enough data at either low or high elevations to properly train the model and set the intercept.
+
+#### Q1.6 Center the predictors
+
+```{r include = FALSE}
+gala <- gala |>
+  mutate(Elevation_ctr = Elevation - mean(Elevation))
+
+# Endemics ~ Elevation
+m.elev2 <- 
+  brm(data = gala, # Give the model the penguins data
+      # Choose a poisson distribution - THIS IS THE NEW PART!
+      family = poisson(link = "log"),
+      # Specify the model here. 
+      Endemics ~ 1 + Elevation_ctr,
+      # Here's where you specify parameters for executing the Markov chains
+      # We're using similar to the defaults, except we set cores to 4 so the analysis runs faster than the default of 1
+      iter = 6000, warmup = 4000, chains = 4, cores = 4,
+      prior = prior(normal(0, 0.1), class = b),
+      # Save the fitted model object as output - helpful for reloading in the output later
+      file = "output/m.elev2")
+
+```
+
+```{r}
+print(m.elev2, digits=4)
+pairs(m.elev2)
+plot(m.elev2)
+```
+
+```{r}
+preds <- estimate_expectation(m.elev2, by = 'Elevation_ctr')
+plot(preds, show_data = TRUE)
+```
+
+```{r}
+predslog <- estimate_expectation(m.elev2, by = 'Elevation_ctr', predict = 'link')
+plot(predslog)
+```
+
+```{r}
+print(m.elev2, digits = 4)
+```
+
+1.  Back transform - My slope value is 0.0013, so I will take the `exp()` of that value:
+
+```{r}
+exp(0.0013)
+```
+
+This back transforms to 1.0013
+
+2.  **Interpret:**
+
+```{r}
+plot(preds, show_data = TRUE)
+```
+
+#### Q1.7 What is the percent change on the response scale?
+
+1.  Number of Clarkias blooming as a function of temperature in Celsius: 1.09
+
+```{r}
+exp(1.09)
+```
+
+For every increase in degree C, there is a 2.9% increase in clarkias blooming.
+
+2.  Density of sea urchins per square meter in a quadrat as a function of number of sea otters: -2.5
+
+```{r}
+exp(-2.5)
+```
+
+For every additional sea otter, urchin density decreases by 0.08% per square meter
+
+3.  Number of tomatoes per plant as a function of kg of fertilizer: 6.24
+
+```{r}
+exp(6.24)
+```
+
+#### Q1.8 Create a non-endemic column
+
+```{r}
+gala2 <- gala %>% 
+  mutate(non_Endemics = Species - Endemics)
+
+ggplot(gala2, aes(x= Scruz, y= non_Endemics))+
+  geom_point()
+```
+
+#### Q1.9 Run a model of non Endemics \~ distance from Santa Cruz Island
+
+Run a model with a Poisson distribution and log-link function that models the number of non-endemic species as a function of distance from Santa Cruz Island.
+
+```{r}
+m.nonedemic <- 
+  brm(data = gala2, # Give the model the penguins data
+      # Choose a poisson distribution - THIS IS THE NEW PART!
+      family = poisson(link = "log"),
+      # Specify the model here. 
+      non_Endemics ~ 1 + Scruz,
+      # Here's where you specify parameters for executing the Markov chains
+      # We're using similar to the defaults, except we set cores to 4 so the analysis runs faster than the default of 1
+      iter = 6000, warmup = 4000, chains = 4, cores = 4,
+      prior = prior(normal(0, 0.1), class = b),
+      # Save the fitted model object as output - helpful for reloading in the output later
+      file = "output/m.nonendemic")
+```
+
+#### Q1.10 Evaluate the output
+
+```{r}
+plot(m.nonedemic)
+summary(m.nonedemic)
+print(m.nonedemic, digits = 4)
+```
+
+rhat values are 1, posterior chains converge, and the posterior plots are unimodal/uniform
+
+#### Q1.11 Interpret the output
+
+Interpret the model coefficients by writing a 2-3 sentence results paragraph that answers:
+
+a)  The original value was -0.1
+b)  
+
+```{r}
+exp(-0.01)
+```
+
+c)  The percent change is then 0.99%
+
+As distance from Santa Cruz Island increases, the frequency of nonendemics decreases. With every unit increase in distance from Santa Cruz island, there is a 1% decrease in non-endemic species.
+
+2.  Does it seem like the slope estimate is different from zero? Why?
+
+    Yes, the 95% CI's exclude 0
+
+#### Q1.12 Plot the posterior
+
+```{r}
+predslog <- estimate_expectation(m.nonedemic, by = 'Scruz', predict = 'link')
+plot(predslog)
+```
+
+```{r}
+preds <- estimate_expectation(m.nonedemic, by = 'Scruz')
+plot(preds, show_data = TRUE)
+```
+
+## 1.3 GLM with a logit link
+
+### Bring in turtle data
+
+```{r}
+turtle <- faraway::turtle %>% 
+  mutate(total_turtles = male + female,
+         proportion_female = female/total_turtles)
+```
+
+```{r}
+turtle %>% 
+  ggplot(aes(x = temp, y = proportion_female)) +
+  geom_point()
+```
+
+```{r}
+m.turt <- 
+  brm(data = turtle, # Give the model the data
+      # Choose a binomial distribution - THIS IS THE NEW PART!
+      family = binomial(link = "logit"),
+      # Specify the model here. 
+      female | trials(total_turtles) ~ 1 + temp,
+      # Here's where you specify parameters for executing the Markov chains
+      # We're using similar to the defaults, except we set cores to 4 so the analysis runs faster than the default of 1
+      iter = 4000, warmup = 1000, chains = 4, cores = 4,
+      # Save the fitted model object as output - helpful for reloading in the output later
+      file = "output/m.turt")
+
+summary(m.turt)
+```
+
+```{r}
+pred <- predict_response(m.turt, condition = c(total_turtles = 10))
+
+plot(pred)
+```
+
+#### Q2.1 Fixed effects vs random effects
+
+For the following variables in the model examples below, denote which variables are the fixed effects and which could be accounted for as random effects (some variables could be either, but consider then as being eligible to be random effects):
+
+1.  Student high school graduation rates as a function of: parental income, state of residence, and school district
+
+    Fixed: parental income
+
+    Random: State and district
+
+2.  Density of kelp as a function of: latitude, site, transect number, and density of sea urchins
+
+    Fixed: latitude, density of sea urchins
+
+    Random: site, transect number
+
+3.  Probability of whale giving birth as a function of: age, annual temperature, year, individual ID
+
+    Fixed: temperature, age
+
+4.  Random: individual Id, year
+
+# Fiddler Crabs
+
+```{r}
+pie_crab <- lterdatasampler::pie_crab %>% 
+  mutate(site = as.factor(site))
+```
+
+```{r}
+pie_crab %>% 
+  ggplot(aes(x = air_temp, y = size)) +
+  geom_point()
+```
+
+```{r}
+m.watertemp <- 
+  brm(data = pie_crab, # Give the model the penguins data
+      # Use a gamma distribution
+      family = Gamma(link = "log"),
+      # Specify the model here. 
+      size ~ 1 + water_temp,
+      # Here's where you specify parameters for executing the Markov chains
+      # We're using similar to the defaults, except we set cores to 4 so the analysis runs faster than the default of 1
+      iter = 2000, warmup = 1000, chains = 4, cores = 4,
+      # Save the fitted model object as output - helpful for reloading in the output later
+      file = "output/m.watertemp")
+
+print(m.watertemp, digits = 3)
+```
+
+```{r}
+m.watertemp.site <- 
+  brm(data = pie_crab, # Give the model the penguins data
+      # Use a gamma distribution
+      family = Gamma(link = "log"),
+      # Specify the model here. 
+      size ~ 1 + water_temp + (1|site),
+      # Here's where you specify parameters for executing the Markov chains
+      # We're using similar to the defaults, except we set cores to 4 so the analysis runs faster than the default of 1
+      iter = 2000, warmup = 1000, chains = 4, cores = 4,
+      # Save the fitted model object as output - helpful for reloading in the output later
+      file = "output/m.watertemp.site")
+
+print(m.watertemp.site, digits = 3)
+```
+
+#### Q2.2 What is the effect of water_temp on crab size on the response scale?
+
+Interpret the output by writing a 2-3 sentence results paragraph that answers:
+
+1.  What is the effect of water_temp on creab size? Report the a) original output on the log scale, b) your backtransformed value, and c) the percent change that this translates to. Describe the effect using the proper units.
+2.  Does it seem like the slope estimate is different from zero? Why?
+
+#### Q2.3 Compare WAIC and PSIS of the two models
+
+Between the two models, which has the better predictive power?
+
+```{r}
+loo(m.watertemp)
+loo(m.watertemp.site)
+waic(m.watertemp)
+waic(m.watertemp.site)
+```
+
+The second model that includes site as a random effect is the better model (lower loo and waic values)
+
+```{r}
+preds <- predict_response(m.watertemp.site,
+                          interval = "prediction",
+                          terms = "site",
+                          type = "random")
+
+plot(preds)
+
+```
