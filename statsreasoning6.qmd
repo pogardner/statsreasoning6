@@ -30,9 +30,9 @@ library(faraway) # For data on galapagos species richess
 
 1.  Poisson
 
-2.   Bernoulli
+2.  Bernoulli
 
-3.   Beta
+3.  Beta
 
 4.  Gamma
 
